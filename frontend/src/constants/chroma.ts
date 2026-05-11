@@ -1,10 +1,11 @@
 /**
  * CHROMA_COLOR — canonical pitch-class to color mapping.
  *
- * !! TODO: Replace placeholder values with your personal associations !!
+ * 12 hues evenly distributed across the OKLCH wheel in ~29° steps.
+ * Lightness tuned per region: yellows pulled down (harsh on dark), blues/purples
+ * lifted (naturally darker). Chroma kept high throughout for vibrancy on black.
  *
- * Format: OKLCH strings — perceptually uniform, safe for linear interpolation.
- * oklch(lightness% chroma hue°)
+ * Format: oklch(lightness% chroma hue°) — perceptually uniform, safe for lerp.
  *
  * Index = pitch class:
  *   0=C, 1=C#, 2=D, 3=D#, 4=E, 5=F,
@@ -16,21 +17,47 @@
  *   - PercussionCrystals: not used (instrument-specific colors there)
  *   - ChladniFloor: not used directly
  *   - Debug overlay: note label colors
+ *   - CHROMA_RGB below: pre-converted [r,g,b] for GLSL uniforms
  */
 export const CHROMA_COLOR: readonly string[] = [
-  "oklch(65% 0.20   0°)",    //  0  C       — PLACEHOLDER
-  "oklch(60% 0.22  30°)",    //  1  C#/Db   — PLACEHOLDER
-  "oklch(70% 0.18  60°)",    //  2  D        — PLACEHOLDER
-  "oklch(65% 0.20  90°)",    //  3  D#/Eb   — PLACEHOLDER
-  "oklch(75% 0.16 120°)",    //  4  E        — PLACEHOLDER
-  "oklch(60% 0.22 150°)",    //  5  F        — PLACEHOLDER
-  "oklch(55% 0.24 180°)",    //  6  F#/Gb   — PLACEHOLDER
-  "oklch(65% 0.20 210°)",    //  7  G        — PLACEHOLDER
-  "oklch(60% 0.22 240°)",    //  8  G#/Ab   — PLACEHOLDER
-  "oklch(65% 0.20 270°)",    //  9  A        — PLACEHOLDER
-  "oklch(60% 0.22 300°)",    // 10  A#/Bb   — PLACEHOLDER
-  "oklch(55% 0.20 330°)",    // 11  B        — PLACEHOLDER
+  "oklch(68% 0.22  29°)",    //  0  C    — warm scarlet
+  "oklch(70% 0.22  58°)",    //  1  C#   — deep orange
+  "oklch(73% 0.18  85°)",    //  2  D    — golden yellow
+  "oklch(70% 0.20 113°)",    //  3  D#   — lime / chartreuse
+  "oklch(68% 0.21 145°)",    //  4  E    — spring green
+  "oklch(66% 0.20 173°)",    //  5  F    — emerald / teal
+  "oklch(68% 0.20 200°)",    //  6  F#   — cornflower sky
+  "oklch(67% 0.21 228°)",    //  7  G    — royal blue
+  "oklch(65% 0.22 258°)",    //  8  G#   — violet-indigo
+  "oklch(65% 0.22 290°)",    //  9  A    — rich purple
+  "oklch(67% 0.23 320°)",    // 10  A#   — hot pink / fuchsia
+  "oklch(68% 0.21 350°)",    // 11  B    — rose-crimson
 ] as const;
+
+/**
+ * CHROMA_RGB — pre-converted linear-sRGB [r, g, b] triples (0–1) for passing
+ * as vec3 uniforms to GLSL shaders. Computed once at module load from CHROMA_COLOR
+ * via the browser's CSS color parsing pipeline.
+ *
+ * Usage in a React component:
+ *   const color = new THREE.Color(...CHROMA_RGB[pitchClass]);
+ */
+export const CHROMA_RGB: readonly [number, number, number][] = (() => {
+  if (typeof document === "undefined") {
+    // SSR / Node fallback — return unit white; real values come from the browser
+    return Array(12).fill([1, 1, 1]) as [number, number, number][];
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = 1;
+  const ctx = canvas.getContext("2d")!;
+  return CHROMA_COLOR.map((css) => {
+    ctx.clearRect(0, 0, 1, 1);
+    ctx.fillStyle = css;
+    ctx.fillRect(0, 0, 1, 1);
+    const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+    return [r / 255, g / 255, b / 255] as [number, number, number];
+  });
+})();
 
 /**
  * CHROMA_HUE_DEG — hue angle only (degrees), for use in GLSL uniforms.
