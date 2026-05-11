@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+*.egg
+.mypy_cache/
+
+# Demucs / model weights (large binary files, download on first run)
+backend/weights/
+backend/separated/
+
+# Feature files (generated output — large, not source)
+*.hviz
+*.hdf5
+*.npz
+audio_input/
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
+# macOS
+.DS_Store
+
+# Env
+.env
+.env.local

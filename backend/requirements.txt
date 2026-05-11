@@ -1,0 +1,33 @@
+# Audio separation
+demucs==4.0.1
+
+# Pitch tracking
+crepe==0.0.16
+tensorflow>=2.13,<2.16   # crepe backend
+
+# Audio analysis
+librosa==0.10.2
+soundfile==0.12.1
+resampy==0.4.3
+
+# Chord / music theory
+mir_eval==0.7
+
+# Scientific stack
+numpy>=1.24
+scipy>=1.11
+
+# ML (Phase 7 perceptual model)
+scikit-learn>=1.3
+torch>=2.1
+torchvision>=0.16
+
+# API
+fastapi==0.111.0
+uvicorn[standard]==0.29.0
+python-multipart==0.0.9   # file upload
+
+# Utilities
+tqdm>=4.66
+click>=8.1        # CLI argument parsing
+h5py>=3.9         # optional: .hviz as HDF5 if JSON grows too large
