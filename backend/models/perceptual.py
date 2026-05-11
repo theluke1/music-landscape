@@ -7,6 +7,18 @@ Output: [energy, valence, tension, density] — all 0–1
 
 Until Phase 7 training is complete, predict() returns zeros for all frames.
 The model slot is wired up in process_audio.py so it's a drop-in when ready.
+
+Training data — free sources only:
+  FMA (Free Music Archive) — fma.github.io
+      106 k tracks with genre + pre-computed audio features (spectral centroid,
+      RMS, chroma, MFCCs). Use fma_metadata/tracks.csv for valence/energy proxies.
+  PMEMO — github.com/gregtarl/PMEmo
+      794 pop songs with continuous arousal/valence annotations.
+  Self-supervised from our own pipeline:
+      RMS ≈ energy, spectral centroid ≈ brightness/tension.
+      Can bootstrap labels without any external API.
+
+No Spotify API or other paid/rate-limited service required.
 """
 
 from __future__ import annotations

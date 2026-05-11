@@ -1,21 +1,31 @@
 """
 process_audio.py — Harmonic Landscape audio pipeline
-Usage: python process_audio.py <input_audio> [--out <output.hviz>] [--fps 30]
 
-Phases run in order:
-  1. Source separation (Demucs)  → 4 stems: vocals, bass, drums, other
-  2. Pitch tracking (CREPE)      → melody (vocals) + bass pitch per frame
-  3. Chroma + chord matching     → 12-dim chroma + chord root/quality per frame
-  4. Drum onset detection        → per-instrument energy + sharpness per frame
-  5. Structural segmentation     → [(start, end, label)]
-  6. Spectrogram (mel)           → 128-bin row per frame (for Chladni floor)
-  7. Perceptual ML               → energy/valence/tension/density (Phase 7, zeros until trained)
-  8. Assemble + write .hviz JSON
+Public API:
+  run_pipeline(audio_path, out_path, fps, device, on_progress) → dict
+      Core pipeline — importable by the API server, no subprocess needed.
+      on_progress(step_key, pct, message) is called at each stage.
+
+CLI (thin wrapper around run_pipeline):
+  python process_audio.py <input_audio> [--out <output.hviz>] [--fps 30] [--device cpu]
+
+Pipeline stages and their progress allocations:
+  separate   0 → 50  (Demucs — dominates wall time)
+  pitch     50 → 70  (CREPE on 2 stems)
+  chroma    70 → 78
+  drums     78 → 84
+  structure 84 → 88
+  stft      88 → 93
+  perceptual 93 → 96
+  assemble  96 → 100
 """
+
+from __future__ import annotations
 
 import json
 import time
 from pathlib import Path
+from typing import Callable
 
 import click
 import numpy as np
@@ -31,87 +41,99 @@ from models.perceptual import PerceptualModel
 FPS = 30
 HVIZ_VERSION = "0.1"
 
-
-def build_frames(
-    fps: int,
-    duration_s: float,
-    melody_frames: list[dict],
-    bass_frames: list[dict],
-    chord_frames: list[dict],
-    drum_frames: list[dict],
-    chroma_frames: list[list[float]],
-    spec_frames: list[list[float]],
-    perceptual_frames: list[dict],
-) -> list[dict]:
-    n = len(melody_frames)
-    frames = []
-    for i in range(n):
-        frames.append({
-            "t": round(i / fps, 4),
-            "melody": melody_frames[i],
-            "bass": bass_frames[i],
-            "chord": chord_frames[i],
-            "drums": drum_frames[i],
-            "chroma": chroma_frames[i],
-            "spectrogram_row": spec_frames[i],
-            "perceptual": perceptual_frames[i],
-        })
-    return frames
+ProgressCallback = Callable[[str, int, str], None]
 
 
-@click.command()
-@click.argument("input_audio", type=click.Path(exists=True))
-@click.option("--out", default=None, help="Output .hviz path (default: <input>.hviz)")
-@click.option("--fps", default=FPS, show_default=True, help="Frames per second")
-@click.option("--device", default="cpu", show_default=True, help="Demucs device: cpu | cuda | mps")
-def main(input_audio: str, out: str | None, fps: int, device: str) -> None:
-    audio_path = Path(input_audio)
-    out_path = Path(out) if out else audio_path.with_suffix(".hviz")
+# ---------------------------------------------------------------------------
+# Core pipeline
+# ---------------------------------------------------------------------------
 
-    print(f"[1/7] Separating stems ({device})…")
+def run_pipeline(
+    audio_path: Path,
+    out_path: Path,
+    fps: int = FPS,
+    device: str = "cpu",
+    on_progress: ProgressCallback | None = None,
+) -> dict:
+    """
+    Run the full audio analysis pipeline.
+
+    Parameters
+    ----------
+    audio_path  : input audio file
+    out_path    : where to write the .hviz JSON
+    fps         : feature frames per second (default 30)
+    device      : Demucs/CREPE device — "cpu", "cuda", or "mps"
+    on_progress : optional callback(step_key, pct_int, message_str)
+
+    Returns
+    -------
+    The assembled hviz dict (also written to out_path).
+    """
+    def progress(step: str, pct: int, msg: str) -> None:
+        if on_progress:
+            on_progress(step, pct, msg)
+
+    # 1 — Source separation
+    progress("separate", 0, f"Separating stems with Demucs ({device})…")
     t0 = time.time()
     stems = separate_stems(audio_path, device=device)
-    # stems = { "vocals": (samples, sr), "bass": …, "drums": …, "other": … }
-    print(f"      done in {time.time()-t0:.1f}s")
+    progress("separate", 50, f"Stems separated in {time.time()-t0:.1f}s")
 
     sr = stems["vocals"][1]
     duration_s = len(stems["vocals"][0]) / sr
 
-    print("[2/7] Tracking pitch…")
+    # 2 — Pitch tracking
+    progress("pitch", 50, "Tracking melody pitch (CREPE full)…")
     melody_frames, bass_frames = track_pitch(stems, fps=fps)
+    progress("pitch", 70, f"Pitch tracked — {len(melody_frames)} frames")
 
-    print("[3/7] Extracting chroma + chords…")
+    # 3 — Chroma + chords
+    progress("chroma", 70, "Extracting chroma and matching chord templates…")
     chroma_frames, chord_frames = extract_chroma_and_chords(stems, fps=fps)
+    progress("chroma", 78, "Chroma done")
 
-    print("[4/7] Extracting drum features…")
-    drum_frames = extract_drum_features(stems["drums"], sr=sr, fps=fps)
+    # 4 — Drum features
+    progress("drums", 78, "Extracting drum energies and sharpness…")
+    drum_frames = extract_drum_features(stems["drums"][0], sr=sr, fps=fps)
+    progress("drums", 84, "Drum features done")
 
-    print("[5/7] Structural segmentation…")
+    # 5 — Structure
+    progress("structure", 84, "Segmenting song structure…")
     segments = extract_segments(stems, sr=sr)
+    progress("structure", 88, f"Found {len(segments)} segments")
 
-    print("[6/7] Extracting spectrogram…")
+    # 6 — Spectrogram
+    progress("stft", 88, "Computing mel spectrogram…")
     spec_frames = extract_spectrogram(audio_path, fps=fps, n_mels=128)
+    progress("stft", 93, "Spectrogram done")
 
-    print("[7/7] Running perceptual model…")
+    # 7 — Perceptual model
+    progress("perceptual", 93, "Running perceptual model…")
     perceptual_model = PerceptualModel()
     perceptual_frames = perceptual_model.predict(
         chroma_frames=chroma_frames,
         melody_frames=melody_frames,
         drum_frames=drum_frames,
     )
+    progress("perceptual", 96, "Perceptual features done")
 
-    print("Assembling .hviz…")
-    frames = build_frames(
-        fps=fps,
-        duration_s=duration_s,
-        melody_frames=melody_frames,
-        bass_frames=bass_frames,
-        chord_frames=chord_frames,
-        drum_frames=drum_frames,
-        chroma_frames=chroma_frames,
-        spec_frames=spec_frames,
-        perceptual_frames=perceptual_frames,
-    )
+    # 8 — Assemble + write
+    progress("assemble", 96, "Assembling .hviz…")
+    n = min(len(melody_frames), len(bass_frames))
+    frames = [
+        {
+            "t": round(i / fps, 4),
+            "melody": melody_frames[i],
+            "bass": bass_frames[i],
+            "chord": chord_frames[i],
+            "drums": drum_frames[i],
+            "chroma": chroma_frames[i],
+            "spectrogram_row": spec_frames[i] if i < len(spec_frames) else [],
+            "perceptual": perceptual_frames[i],
+        }
+        for i in range(n)
+    ]
 
     hviz = {
         "meta": {
@@ -127,8 +149,29 @@ def main(input_audio: str, out: str | None, fps: int, device: str) -> None:
 
     out_path.write_text(json.dumps(hviz, separators=(",", ":")))
     size_mb = out_path.stat().st_size / 1e6
-    print(f"Written: {out_path}  ({size_mb:.1f} MB, {len(frames)} frames)")
+    progress("assemble", 100, f"Written {out_path.name} ({size_mb:.1f} MB, {len(frames)} frames)")
+
+    return hviz
+
+
+# ---------------------------------------------------------------------------
+# CLI (thin wrapper)
+# ---------------------------------------------------------------------------
+
+@click.command()
+@click.argument("input_audio", type=click.Path(exists=True))
+@click.option("--out", default=None, help="Output .hviz path (default: <input>.hviz)")
+@click.option("--fps", default=FPS, show_default=True, help="Frames per second")
+@click.option("--device", default="cpu", show_default=True, help="cpu | cuda | mps")
+def cli(input_audio: str, out: str | None, fps: int, device: str) -> None:
+    audio_path = Path(input_audio)
+    out_path = Path(out) if out else audio_path.with_suffix(".hviz")
+
+    def on_progress(step: str, pct: int, msg: str) -> None:
+        print(f"[{pct:3d}%] {msg}")
+
+    run_pipeline(audio_path, out_path, fps=fps, device=device, on_progress=on_progress)
 
 
 if __name__ == "__main__":
-    main()
+    cli()

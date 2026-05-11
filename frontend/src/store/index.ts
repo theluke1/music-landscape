@@ -9,6 +9,9 @@ import { create } from "zustand";
 import type { HvizFile, HvizFrame, HvizMeta } from "../types/hviz";
 
 interface MusicalState {
+  // Job (set once upload + processing completes)
+  jobId: string | null;
+
   // Feature data
   hviz: HvizFile | null;
   frame: HvizFrame | null;
@@ -23,6 +26,7 @@ interface MusicalState {
   helixRotationOffset: number;     // azimuthal rotation for key change animation, radians
 
   // Actions
+  setJobId: (id: string) => void;
   loadHviz: (data: HvizFile) => void;
   setPlaying: (v: boolean) => void;
   setCurrentTime: (t: number) => void;
@@ -32,6 +36,7 @@ interface MusicalState {
 }
 
 export const useMusicalStore = create<MusicalState>((set) => ({
+  jobId: null,
   hviz: null,
   frame: null,
   isPlaying: false,
@@ -40,6 +45,7 @@ export const useMusicalStore = create<MusicalState>((set) => ({
   tonicPitchClass: null,
   helixRotationOffset: 0,
 
+  setJobId: (id) => set({ jobId: id }),
   loadHviz: (data) => set({ hviz: data }),
   setPlaying: (v) => set({ isPlaying: v }),
   setCurrentTime: (t) => set({ currentTime: t }),
