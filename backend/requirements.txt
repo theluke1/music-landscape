@@ -1,33 +1,31 @@
 # Audio separation
 demucs==4.0.1
 
+# PyTorch — demucs + crepe both need it; pin major version for stability
+torch>=2.1,<3.0
+torchaudio>=2.1,<3.0       # explicit: separate.py uses T.Resample
+
 # Pitch tracking
 crepe==0.0.16
-tensorflow>=2.13,<2.16   # crepe backend
+tensorflow>=2.13,<2.16     # crepe backend (TF or JAX, TF is more portable)
 
 # Audio analysis
 librosa==0.10.2
 soundfile==0.12.1
-resampy==0.4.3
+resampy==0.4.3             # librosa resampling backend
 
 # Chord / music theory
 mir_eval==0.7
 
 # Scientific stack
-numpy>=1.24
+numpy>=1.24,<2.0
 scipy>=1.11
 
-# ML (Phase 7 perceptual model)
-scikit-learn>=1.3
-torch>=2.1
-torchvision>=0.16
-
-# API
+# API server
 fastapi==0.111.0
 uvicorn[standard]==0.29.0
-python-multipart==0.0.9   # file upload
+python-multipart==0.0.9    # multipart/form-data file uploads
 
 # Utilities
 tqdm>=4.66
-click>=8.1        # CLI argument parsing
-h5py>=3.9         # optional: .hviz as HDF5 if JSON grows too large
+click>=8.1                 # CLI argument parsing

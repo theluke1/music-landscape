@@ -47,11 +47,9 @@ app = FastAPI(title="Harmonic Landscape API", version="0.1")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",
-        "http://localhost:3000",
-        "https://*.vercel.app",
-    ],
+    # FastAPI's CORSMiddleware doesn't support wildcard subdomains like *.vercel.app.
+    # For a portfolio project, allow_origins=["*"] is fine — there's no auth here.
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
